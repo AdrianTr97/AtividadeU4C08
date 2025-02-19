@@ -42,6 +42,29 @@ int map_value(int value, int from_low, int from_high, int to_low, int to_high) {
   return to_low + ((value - from_low) * (to_high - to_low)) / (from_high - from_low);
 }
 
+volatile int contador = 0;  // Contador exibido
+volatile uint32_t last_interrupt_time_A = 0;
+volatile uint32_t last_interrupt_time_J = 0;
+
+void gpio_irq_handler(uint gpio, uint32_t events){ // Função de interrupção para os botões com debounce
+  uint32_t current_time = to_ms_since_boot(get_absolute_time());
+
+  if (gpio == Botao_A) {
+      if (current_time - last_interrupt_time_A >= 200) {  // Debounce 200ms
+          contador++;
+          printf("Botão A pressionado! Contador: %d\n", contador);
+          last_interrupt_time_A = current_time;
+      }
+  } 
+  else if (gpio == JOYSTICK_PB) {
+      if (current_time - last_interrupt_time_J >= 200) {  // Debounce 200ms
+          contador--;
+          printf("Botão do JOYSTICK pressionado! Contador: %d\n", contador);
+          last_interrupt_time_J = current_time;
+      }
+  }
+}
+
 void gpio_config(){
   //inicializa botao A e botao do analogico
   gpio_init(JOYSTICK_PB);
@@ -51,6 +74,10 @@ void gpio_config(){
   gpio_init(Botao_A);
   gpio_set_dir(Botao_A, GPIO_IN);
   gpio_pull_up(Botao_A);
+
+  // Ativa as interrupções nos botões para chamar gpio_callback()
+  gpio_set_irq_enabled_with_callback(Botao_A, GPIO_IRQ_EDGE_RISE, true, &gpio_irq_handler);
+  gpio_set_irq_enabled_with_callback(JOYSTICK_PB, GPIO_IRQ_EDGE_RISE, true, &gpio_irq_handler);
 }
 
 int main(){
@@ -89,7 +116,9 @@ int main(){
     adc_gpio_init(JOYSTICK_Y_PIN);  
     
     uint16_t adc_value_x;
-    uint16_t adc_value_y;   
+    uint16_t adc_value_y;  
+    //char str_x[5];  // Buffer para armazenar a string
+    //char str_y[5];  // Buffer para armazenar a string  
 
     // Inicializa o PWM para o LED no pino GP12
     uint pwm_wrap = 4096;  // Define o valor máximo para o contador do PWM (influencia o duty cycle)
@@ -110,6 +139,8 @@ int main(){
       adc_value_y = adc_read();    
       uint16_t vry_value = adc_read();  // Lê o valor analógico do eixo Y, retornando um valor entre 0 e 4095
       bool joy_pressed = !gpio_get(JOYSTICK_PB);
+      //sprintf(str_x, "%d", adc_value_x);  // Converte o inteiro em string
+      //sprintf(str_y, "%d", adc_value_y);  // Converte o inteiro em string
 
       // Ativa ou desativa os LEDs PWM com o botão A
       bool button_state = gpio_get(Botao_A);
@@ -175,19 +206,31 @@ int main(){
       x = map_value(adc_value_y, 0, 4095, 0, 120); // 128 - 8 para manter dentro da tela
       //y = map_value(adc_value_y, 0, 4095, 0, 56);  // 64 - 8 para manter dentro da tela
       y = map_value(adc_value_x, 0, 4095, 56, 0);
-    
+      //cor = !cor;
+      // Atualiza o conteúdo do display com animações
       ssd1306_fill(&ssd, !cor); // Limpa o display (128x64)
       ssd1306_rect(&ssd, 1, 1, 126, 63, cor, !cor); // Desenha o retângulo externo 
-
+      //ssd1306_line(&ssd, 3, 25, 123, 25, cor); // Desenha uma linha
+      //ssd1306_line(&ssd, 3, 37, 123, 37, cor); // Desenha uma linha   
+      //ssd1306_draw_string(&ssd, "CEPEDI   TIC37", 8, 6); // Desenha uma string
+      //ssd1306_draw_string(&ssd, "EMBARCATECH", 20, 16); // Desenha uma string
+      //ssd1306_draw_string(&ssd, "ADC   JOYSTICK", 10, 28); // Desenha uma string 
+      //ssd1306_draw_string(&ssd, "X    Y    PB", 20, 41); // Desenha uma string    
+      //ssd1306_line(&ssd, 44, 37, 44, 60, cor); // Desenha uma linha vertical         
+      //ssd1306_draw_string(&ssd, str_x, 8, 52); // Desenha uma string     
+      //ssd1306_line(&ssd, 84, 37, 84, 60, cor); // Desenha uma linha vertical      
+      //ssd1306_draw_string(&ssd, str_y, 49, 52); // Desenha uma string   
+      //ssd1306_rect(&ssd, 52, 90, 8, 8, cor, !gpio_get(JOYSTICK_PB)); // Desenha um retângulo, preenche o retangulo ao clicar no analogico
       if (gpio_get(JOYSTICK_PB) == 0) {
         // Desenha apenas o contorno do novo retângulo quando o joystick for pressionado
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor); 
       }
-             
+      //ssd1306_rect(&ssd, 52, 102, 8, 8, cor, !gpio_get(Botao_A)); // Desenha um retângulo          
       // Desenha o quadrado no display (com os valores calculados para x e y)
-      ssd1306_rect(&ssd, y, x, 8, 8, cor, cor); // desenha um quadrado no meio do display
+      ssd1306_rect(&ssd, y, x, 8, 8, cor, cor); // retângulo no meio do display
       //ssd1306_rect(&ssd, 28, 60, 8, 8, cor, cor); // retangulo no meio do display
       ssd1306_send_data(&ssd); // Atualiza o display
+
 
     // Introduz um atraso de 100 milissegundos antes de repetir a leitura
     sleep_ms(100);  // Pausa o programa por 100ms para evitar leituras e impressões muito rápidas
