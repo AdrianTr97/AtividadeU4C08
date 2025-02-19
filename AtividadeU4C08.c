@@ -89,9 +89,7 @@ int main(){
     adc_gpio_init(JOYSTICK_Y_PIN);  
     
     uint16_t adc_value_x;
-    uint16_t adc_value_y;  
-    //char str_x[5];  // Buffer para armazenar a string
-    //char str_y[5];  // Buffer para armazenar a string  
+    uint16_t adc_value_y;   
 
     // Inicializa o PWM para o LED no pino GP12
     uint pwm_wrap = 4096;  // Define o valor máximo para o contador do PWM (influencia o duty cycle)
@@ -112,8 +110,6 @@ int main(){
       adc_value_y = adc_read();    
       uint16_t vry_value = adc_read();  // Lê o valor analógico do eixo Y, retornando um valor entre 0 e 4095
       bool joy_pressed = !gpio_get(JOYSTICK_PB);
-      //sprintf(str_x, "%d", adc_value_x);  // Converte o inteiro em string
-      //sprintf(str_y, "%d", adc_value_y);  // Converte o inteiro em string
 
       // Ativa ou desativa os LEDs PWM com o botão A
       bool button_state = gpio_get(Botao_A);
