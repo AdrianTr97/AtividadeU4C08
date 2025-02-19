@@ -62,6 +62,7 @@ int main(){
     // Variáveis de controle
     bool led_estado = false;  // Flag para controlar o estado do LED (false = desligado, true = ligado), para o led verde
     bool pwm_enabled = true;  // Controle do PWM (se habilitado ou desabilitado)
+    bool last_button_state = true;
     // Posição inicial do quadrado do display
     int y = 28;
     int x = 60;
@@ -97,6 +98,8 @@ int main(){
     uint pwm_slice_x = pwm_init_gpio(LEDR_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDR_PIN e retorna o número do slice, red eixo x, esquerda(+) e direita(-)
     uint pwm_slice_y = pwm_init_gpio(LEDB_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDB_PIN e retorna o número do slice, azul eixo y, cima (+) e baixo (-)
     uint pwm_slice_g = pwm_init_gpio(LEDG_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDG_PIN e retorna o número do slice ---
+    //analogico para o eixo y: cima (+) x = 2047, y = 4095 e baixo (-) x = 2047, y = 0, 
+    //eixo x: esquerda(+) x = 0, y = 2047 e direita(-) x = 4095, y = 2047
 
     uint32_t last_print_time = 0; // Variável para armazenar o tempo da última impressão na serial
 
@@ -112,9 +115,51 @@ int main(){
       //sprintf(str_x, "%d", adc_value_x);  // Converte o inteiro em string
       //sprintf(str_y, "%d", adc_value_y);  // Converte o inteiro em string
 
+      // Ativa ou desativa os LEDs PWM com o botão A
+      bool button_state = gpio_get(Botao_A);
+      if (!button_state && last_button_state) {  // Detecta mudança de estado (falling edge)
+          pwm_enabled = !pwm_enabled;
+      }
+      last_button_state = button_state;
+
+      // Mapeia os valores de VRX e VRY para o intervalo de PWM, Cálculo de PWM com base na posição do joystick
+      //uint16_t pwm_x = abs(vrx_value - 2048) * 2;  // Ajusta o PWM para o LED vermelho (VRX), abs = absolute, funcao de <stdlib.h>
+      //uint16_t pwm_y = abs(vry_value - 2048) * 2;  // Ajusta o PWM para o LED azul (VRY)
+
+      // Cálculo de PWM com base na posição do joystick
+      //uint16_t pwm_x = abs(vrx_value - 2047);  // Diferença absoluta em relação ao centro (2048)
+      //uint16_t pwm_y = abs(vry_value - 2047);  // Diferença absoluta em relação ao centro (2048)
+      uint16_t pwm_x;
+      uint16_t pwm_y;
+      const uint16_t deadzone = 50; // Definir uma zona morta fixa ao redor de 2048
+      // Se o valor estiver dentro da zona morta, o PWM será zero
+      if (vrx_value > (2048 - deadzone) && vrx_value < (2048 + deadzone)) {
+        pwm_x = 0;
+      } else {
+        pwm_x = (abs(vrx_value - 2048) * 4096) / 2048;  // Mapeia de 0 a 4096
+      }
+
+      // Repete o mesmo processo para o eixo Y
+      if (vry_value > (2048 - deadzone) && vry_value < (2048 + deadzone)) {
+        pwm_y = 0;
+      } else {
+        pwm_y = (abs(vry_value - 2048) * 4096) / 2048;
+      }
+      // Limita o valor máximo do PWM a 4095, Limitação de segurança (caso algum valor ultrapasse 4095)
+      if (pwm_x > 4095) pwm_x = 4095;
+      if (pwm_y > 4095) pwm_y = 4095;
+
+      if (pwm_enabled) {
+        // Controle dos LEDs com PWM baseado no valor do ADC0 (VRX) e ADC1 (VRY)
+        pwm_set_gpio_level(LEDR_PIN, pwm_x); // Ajusta o duty cycle do LED proporcional ao valor lido de VRX
+        pwm_set_gpio_level(LEDB_PIN, pwm_y); // Ajusta o duty cycle do LED proporcional ao valor lido de VRY
+      } else {
+        pwm_set_gpio_level(LEDR_PIN, 0);
+        pwm_set_gpio_level(LEDB_PIN, 0);
+      }      
       // Controle dos LEDs com PWM baseado no valor do ADC0 (VRX) e ADC1 (VRY)
-      pwm_set_gpio_level(LEDR_PIN, vrx_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRX
-      pwm_set_gpio_level(LEDB_PIN, vry_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRY
+      //pwm_set_gpio_level(LEDR_PIN, vrx_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRX
+      //pwm_set_gpio_level(LEDB_PIN, vry_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRY
       pwm_set_gpio_level(LEDG_PIN, joy_pressed ? pwm_wrap : 0);
 
       // Calcula o duty cycle em porcentagem para impressão
@@ -134,46 +179,20 @@ int main(){
       x = map_value(adc_value_y, 0, 4095, 0, 120); // 128 - 8 para manter dentro da tela
       //y = map_value(adc_value_y, 0, 4095, 0, 56);  // 64 - 8 para manter dentro da tela
       y = map_value(adc_value_x, 0, 4095, 56, 0);
-      //cor = !cor;
-      // Atualiza o conteúdo do display com animações
+    
       ssd1306_fill(&ssd, !cor); // Limpa o display (128x64)
       ssd1306_rect(&ssd, 1, 1, 126, 63, cor, !cor); // Desenha o retângulo externo 
-      //ssd1306_line(&ssd, 3, 25, 123, 25, cor); // Desenha uma linha
-      //ssd1306_line(&ssd, 3, 37, 123, 37, cor); // Desenha uma linha   
-      //ssd1306_draw_string(&ssd, "CEPEDI   TIC37", 8, 6); // Desenha uma string
-      //ssd1306_draw_string(&ssd, "EMBARCATECH", 20, 16); // Desenha uma string
-      //ssd1306_draw_string(&ssd, "ADC   JOYSTICK", 10, 28); // Desenha uma string 
-      //ssd1306_draw_string(&ssd, "X    Y    PB", 20, 41); // Desenha uma string    
-      //ssd1306_line(&ssd, 44, 37, 44, 60, cor); // Desenha uma linha vertical         
-      //ssd1306_draw_string(&ssd, str_x, 8, 52); // Desenha uma string     
-      //ssd1306_line(&ssd, 84, 37, 84, 60, cor); // Desenha uma linha vertical      
-      //ssd1306_draw_string(&ssd, str_y, 49, 52); // Desenha uma string   
-      //ssd1306_rect(&ssd, 52, 90, 8, 8, cor, !gpio_get(JOYSTICK_PB)); // Desenha um retângulo, preenche o retangulo ao clicar no analogico
+
       if (gpio_get(JOYSTICK_PB) == 0) {
         // Desenha apenas o contorno do novo retângulo quando o joystick for pressionado
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor); 
-        // Se o joystick foi pressionado, alterna o estado do LED verde
-        //led_estado = !led_estado;  // Alterna o estado (ligado/desligado)
-        
-        // Atualiza o estado do LED verde com base no flag
-        //gpio_put(LEDG_PIN, led_estado); // Liga ou desliga o LED azul conforme o estado 
       }
-      //ssd1306_rect(&ssd, 52, 102, 8, 8, cor, !gpio_get(Botao_A)); // Desenha um retângulo          
+             
       // Desenha o quadrado no display (com os valores calculados para x e y)
-      ssd1306_rect(&ssd, y, x, 8, 8, cor, cor); // retângulo no meio do display
+      ssd1306_rect(&ssd, y, x, 8, 8, cor, cor); // desenha um quadrado no meio do display
       //ssd1306_rect(&ssd, 28, 60, 8, 8, cor, cor); // retangulo no meio do display
       ssd1306_send_data(&ssd); // Atualiza o display
 
-      // Ativa ou desativa os LEDs PWM com o botão A
-      if (gpio_get(Botao_A)) {
-        pwm_enabled = !pwm_enabled;
-
-        if (!pwm_enabled) {
-          // Desativa os LEDs PWM (sem movimento)
-          pwm_set_gpio_level(LEDR_PIN, 0);
-          pwm_set_gpio_level(LEDB_PIN, 0);
-        }
-      }
     // Introduz um atraso de 100 milissegundos antes de repetir a leitura
     sleep_ms(100);  // Pausa o programa por 100ms para evitar leituras e impressões muito rápidas
     }
