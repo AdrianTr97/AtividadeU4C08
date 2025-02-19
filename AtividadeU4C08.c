@@ -16,9 +16,9 @@
 #define JOYSTICK_Y_PIN 27  // GPIO para eixo Y
 #define JOYSTICK_PB 22 // GPIO para botão do Joystick
 #define Botao_A 5 // GPIO para botão A
-#define LEDG_PIN 11  //GPIO led verde
-#define LEDB_PIN 13  //GPIO led azul
-#define LEDR_PIN 12  //GPIO led vermelho
+#define LEDG_PIN 11  //GPIO led verde, acionado no clique do botao
+#define LEDB_PIN 13  //GPIO led azul, no eixo y
+#define LEDR_PIN 12  //GPIO led vermelho, no eixo x
 
 // Função para inicializar o PWM
 uint pwm_init_gpio(uint gpio, uint wrap) {
@@ -38,20 +38,19 @@ uint pwm_init_gpio(uint gpio, uint wrap) {
 }
 
 // Mapeamento do ADC (0-4095) para a resolução do display (0-120 para X e 0-56 para Y)
-//int map_value(int value, int from_low, int from_high, int to_low, int to_high) {
-//  return to_low + ((value - from_low) * (to_high - to_low)) / (from_high - from_low);
-//}
-
-// Mapeamento do ADC (0-4095) para a resolução do display (0-120 para X e 0-56 para Y)
 int map_value(int value, int from_low, int from_high, int to_low, int to_high) {
   return to_low + ((value - from_low) * (to_high - to_low)) / (from_high - from_low);
 }
 
 void gpio_config(){
-    // Inicializa o pino do LED azul
-    gpio_init(LEDB_PIN);            // Inicializa o pino do LED verde
-    gpio_set_dir(LEDB_PIN, GPIO_OUT);  // Configura o pino como saída
-    gpio_put(LEDB_PIN, false);      // Inicializa o LED azul apagado (false)
+  //inicializa botao A e botao do analogico
+  gpio_init(JOYSTICK_PB);
+  gpio_set_dir(JOYSTICK_PB, GPIO_IN);
+  gpio_pull_up(JOYSTICK_PB); 
+  
+  gpio_init(Botao_A);
+  gpio_set_dir(Botao_A, GPIO_IN);
+  gpio_pull_up(Botao_A);
 }
 
 int main(){
@@ -63,19 +62,11 @@ int main(){
     // Variáveis de controle
     bool led_estado = false;  // Flag para controlar o estado do LED (false = desligado, true = ligado), para o led verde
     bool pwm_enabled = true;  // Controle do PWM (se habilitado ou desabilitado)
-
-    // Posição inicial do quadrado
+    // Posição inicial do quadrado do display
     int y = 28;
     int x = 60;
+    bool cor = true; // Cor do quadrado (pode ser ajustada conforme necessário)
     
-    gpio_init(JOYSTICK_PB);
-    gpio_set_dir(JOYSTICK_PB, GPIO_IN);
-    gpio_pull_up(JOYSTICK_PB); 
-  
-    gpio_init(Botao_A);
-    gpio_set_dir(Botao_A, GPIO_IN);
-    gpio_pull_up(Botao_A);
-  
     // I2C Initialisation. Using it at 400Khz.
     i2c_init(I2C_PORT, 400 * 1000);
   
@@ -100,14 +91,13 @@ int main(){
     uint16_t adc_value_y;  
     //char str_x[5];  // Buffer para armazenar a string
     //char str_y[5];  // Buffer para armazenar a string  
-    
-    bool cor = true; // Cor do quadrado (pode ser ajustada conforme necessário)
 
     // Inicializa o PWM para o LED no pino GP12
     uint pwm_wrap = 4096;  // Define o valor máximo para o contador do PWM (influencia o duty cycle)
-    uint pwm_slice_x = pwm_init_gpio(LEDR_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDR_PIN e retorna o número do slice, red eixo x, para esquerda
-    uint pwm_slice_y = pwm_init_gpio(LEDG_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDG_PIN e retorna o número do slice, green eixo y, para cima
-    
+    uint pwm_slice_x = pwm_init_gpio(LEDR_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDR_PIN e retorna o número do slice, red eixo x, esquerda(+) e direita(-)
+    uint pwm_slice_y = pwm_init_gpio(LEDB_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDB_PIN e retorna o número do slice, azul eixo y, cima (+) e baixo (-)
+    uint pwm_slice_g = pwm_init_gpio(LEDG_PIN, pwm_wrap);  // Inicializa o PWM no pino LEDG_PIN e retorna o número do slice ---
+
     uint32_t last_print_time = 0; // Variável para armazenar o tempo da última impressão na serial
 
     while (true)
@@ -118,24 +108,26 @@ int main(){
       adc_select_input(1); // Seleciona o ADC para eixo Y. O pino 27 como entrada analógica
       adc_value_y = adc_read();    
       uint16_t vry_value = adc_read();  // Lê o valor analógico do eixo Y, retornando um valor entre 0 e 4095
+      bool joy_pressed = !gpio_get(JOYSTICK_PB);
       //sprintf(str_x, "%d", adc_value_x);  // Converte o inteiro em string
       //sprintf(str_y, "%d", adc_value_y);  // Converte o inteiro em string
 
       // Controle dos LEDs com PWM baseado no valor do ADC0 (VRX) e ADC1 (VRY)
       pwm_set_gpio_level(LEDR_PIN, vrx_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRX
-      pwm_set_gpio_level(LEDG_PIN, vry_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRY
+      pwm_set_gpio_level(LEDB_PIN, vry_value);  // Ajusta o duty cycle do LED proporcional ao valor lido de VRY
+      pwm_set_gpio_level(LEDG_PIN, joy_pressed ? pwm_wrap : 0);
 
       // Calcula o duty cycle em porcentagem para impressão
-      float duty_cycle_x = (vrx_value / 4095.0) * 100;  // Converte o valor lido do ADC em uma porcentagem do duty cycle
-      float duty_cycle_y = (vry_value / 4095.0) * 100;  // Converte o valor lido do ADC em uma porcentagem do duty cycle, green
+      float duty_cycle_x = (vrx_value / 4095.0) * 100;  // Converte o valor lido do ADC em uma porcentagem do duty cycle, vermelho
+      float duty_cycle_y = (vry_value / 4095.0) * 100;  // Converte o valor lido do ADC em uma porcentagem do duty cycle, azul
 
       // Imprime os valores lidos e o duty cycle proporcional na comunicação serial a cada 1 segundo
       uint32_t current_time = to_ms_since_boot(get_absolute_time());  // Obtém o tempo atual desde o boot do sistema
       if (current_time - last_print_time >= 1000) {  // Verifica se passou 1 segundo desde a última impressão
           printf("VRX: %u\n", vrx_value);  // Imprime o valor lido de VRX no console serial
-          printf("Duty Cycle LED_R: %.2f%%\n", duty_cycle_x);  // Imprime o duty cycle calculado em porcentagem
-          printf("VRY: %u\n", vry_value);  // Imprime o valor lido de VRX no console serial
-          printf("Duty Cycle LED_G: %.2f%%\n", duty_cycle_y);  // Imprime o duty cycle calculado em porcentagem, green
+          printf("Duty Cycle LED_R: %.2f%%\n", duty_cycle_x);  // Imprime o duty cycle calculado em porcentagem, vermelho
+          printf("VRY: %u\n", vry_value);  // Imprime o valor lido de VRY no console serial
+          printf("Duty Cycle LED_G: %.2f%%\n", duty_cycle_y);  // Imprime o duty cycle calculado em porcentagem, azul
           last_print_time = current_time;  // Atualiza o tempo da última impressão
       }
       // Mapeia os valores do ADC para a posição do display
@@ -161,10 +153,10 @@ int main(){
         // Desenha apenas o contorno do novo retângulo quando o joystick for pressionado
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor); 
         // Se o joystick foi pressionado, alterna o estado do LED verde
-        led_estado = !led_estado;  // Alterna o estado (ligado/desligado)
+        //led_estado = !led_estado;  // Alterna o estado (ligado/desligado)
         
         // Atualiza o estado do LED verde com base no flag
-        gpio_put(LEDB_PIN, led_estado); // Liga ou desliga o LED azul conforme o estado 
+        //gpio_put(LEDG_PIN, led_estado); // Liga ou desliga o LED azul conforme o estado 
       }
       //ssd1306_rect(&ssd, 52, 102, 8, 8, cor, !gpio_get(Botao_A)); // Desenha um retângulo          
       // Desenha o quadrado no display (com os valores calculados para x e y)
@@ -179,7 +171,7 @@ int main(){
         if (!pwm_enabled) {
           // Desativa os LEDs PWM (sem movimento)
           pwm_set_gpio_level(LEDR_PIN, 0);
-          pwm_set_gpio_level(LEDG_PIN, 0);
+          pwm_set_gpio_level(LEDB_PIN, 0);
         }
       }
     // Introduz um atraso de 100 milissegundos antes de repetir a leitura
